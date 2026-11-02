@@ -1,0 +1,35 @@
+{
+  "display_name": "<display-name>",
+  "framework": "PYTORCH_DDP",
+  "roles": [
+    {
+      "name": "Worker",
+      "resource_spec": [
+        {
+          "name": "N4lS.Iq.I10.8"
+        }
+      ],
+      "total_replicas": 1,
+      "startup_script": "set -euo pipefail\nrun_id=<run-id>\nlog_dir=<log-dir-on-the-mounted-volume>\nmkdir -p ${log_dir}\nexec > >(tee -a ${log_dir}/${run_id}.log) 2>&1\ncd <project-dir-on-the-mounted-volume>\nexec <project-native-command>",
+      "image_path": "registry.cn-sz-01.qhsgaicc.com/olabots_swr1/<user>:<verified-tag>"
+    }
+  ],
+  "env": [],
+  "mount": [
+    {
+      "type": "PV_AFS",
+      "id": "019f5f70-7d18-79ba-b751-e662976645ce",
+      "mount_path": "/data",
+      "subdir": "/"
+    }
+  ],
+  "scheduling": {
+    "priority": "NORMAL",
+    "quota_type": "RESERVED"
+  },
+  "resource_pool": {
+    "name": "ola-cluster",
+    "zone": "cn-sz-01a",
+    "vpc_id": "019e3896-bd7d-74f4-aa7c-10284aa49b94"
+  }
+}
