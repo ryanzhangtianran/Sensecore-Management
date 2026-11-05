@@ -4,10 +4,7 @@ import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import {
-  buildAuthorization,
-  requireMutationConfirmation,
-} from "./sensecore-cci.mjs";
+import { signedFetch } from "./sensecore-api.mjs";
 
 export const PROFILE = Object.freeze({
   subscription: "019e3826-54cb-7a0a-a5ac-da1ee381f7cd",
@@ -118,59 +115,10 @@ export function validateCreatePayload(body) {
   return body;
 }
 
-function credentialsFromEnv(env = process.env) {
-  const accessKeyId = env.SENSECORE_ACCESS_KEY_ID;
-  const secretAccessKey = env.SENSECORE_ACCESS_KEY_SECRET;
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error(
-      "Set SENSECORE_ACCESS_KEY_ID and SENSECORE_ACCESS_KEY_SECRET in the current process",
-    );
-  }
-  return { accessKeyId, secretAccessKey };
-}
-
-async function parseResponse(response) {
-  const text = await response.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
-  }
-  if (!response.ok) {
-    const detail = typeof data === "string" ? data : JSON.stringify(data);
-    throw new Error(`SenseCore ACP HTTP ${response.status}: ${detail}`);
-  }
-  return data;
-}
-
-export async function signedAcpRequest({
-  method,
-  path: requestPath,
-  body,
-  args = [],
-  env = process.env,
-  fetchImpl = fetch,
-}) {
-  const upperMethod = method.toUpperCase();
-  requireMutationConfirmation(upperMethod, args);
-  if (!requestPath.startsWith("/")) throw new Error("Request path must start with /");
-
-  const credentials = credentialsFromEnv(env);
-  const signed = buildAuthorization({ ...credentials, method: upperMethod, path: requestPath });
-  const headers = {
-    Accept: "application/json",
-    Authorization: signed.authorization,
-    "X-Date": signed.date,
-  };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-
-  const response = await fetchImpl(`${PROFILE.host}${requestPath}`, {
-    method: upperMethod,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+export function signedAcpRequest(request) {
+  return signedFetch({
+    ...request, host: PROFILE.host, headers: { Accept: "application/json" }, label: "SenseCore ACP",
   });
-  return parseResponse(response);
 }
 
 async function readJson(file) {

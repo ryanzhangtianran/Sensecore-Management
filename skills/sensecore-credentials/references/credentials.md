@@ -13,8 +13,9 @@
 
 ## What the helpers read
 
-`sensecore-acp.mjs` and `sensecore-cci.mjs` read exactly two values from their
-own process environment:
+`sensecore-acp.mjs`, `sensecore-cci.mjs` and `sensecore-ccr.mjs` (in the
+`sensecore-acp`, `sensecore-cci` and `sensecore-image` skills) read exactly two
+values from their own process environment:
 
 | Variable | Meaning |
 |---|---|
@@ -114,7 +115,8 @@ version control. A shell profile is readable by every process you start.
 ## Verify
 
 A read-only list is the cheapest end-to-end check of credentials, signing, and
-network path:
+network path. `$ACP` and `$CCI` are the helper paths inside the `sensecore-acp`
+and `sensecore-cci` skills:
 
 ```bash
 node "$ACP" list --page-size 5 --page-token 1

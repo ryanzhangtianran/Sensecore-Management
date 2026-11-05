@@ -89,7 +89,7 @@ delete  <training-job-name> [more-names...] --yes
 ```
 
 Mutating commands require `--yes`. Credentials come only from the process
-environment; see [credentials.md](credentials.md). The signed path includes the
+environment; see the `sensecore-credentials` skill. The signed path includes the
 query string, so never reconstruct or reorder a query after building the
 authorization header.
 

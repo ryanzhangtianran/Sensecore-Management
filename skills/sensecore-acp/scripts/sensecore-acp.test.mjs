@@ -132,3 +132,21 @@ test("signedAcpRequest sends a HMAC-authenticated request to the ACP endpoint", 
   assert.match(request.init.headers.Authorization, /^hmac accesskey="example-access-key"/);
   assert.deepEqual(result, { training_jobs: [], total_size: 0 });
 });
+
+test("helper runs when invoked through a symlinked skill directory", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sensecore-link-"));
+  const link = path.join(tmp, "skill");
+  fs.symlinkSync(path.dirname(dir), link);
+  try {
+    const out = execFileSync(process.execPath, [path.join(link, "scripts", "sensecore-acp.mjs"), "--help"]);
+    assert.match(String(out), /^Usage:/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

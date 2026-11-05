@@ -115,13 +115,13 @@ test("collectPages follows next_page_token and stops on a repeated token", async
   assert.equal(calls, 1);
 });
 
-test("both helpers run when invoked through a symlinked skill directory", () => {
+test("helper runs when invoked through a symlinked skill directory", () => {
   const dir = path.dirname(fileURLToPath(import.meta.url));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sensecore-link-"));
   const link = path.join(tmp, "skill");
   fs.symlinkSync(path.dirname(dir), link);
   try {
-    for (const script of ["sensecore-cci.mjs", "sensecore-acp.mjs"]) {
+    for (const script of ["sensecore-cci.mjs"]) {
       const out = execFileSync(process.execPath, [path.join(link, "scripts", script), "--help"]);
       assert.match(String(out), /^Usage:/, script);
     }

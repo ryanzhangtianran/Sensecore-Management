@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
-import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+import { signedFetch } from "./sensecore-api.mjs";
+
+export { buildAuthorization, requireMutationConfirmation } from "./sensecore-api.mjs";
 
 export const PROFILE = Object.freeze({
   subscription: "019e3826-54cb-7a0a-a5ac-da1ee381f7cd",
@@ -17,11 +20,8 @@ export const PROFILE = Object.freeze({
     cci: "https://cci.cn-sz-01.qhsgaicc.com",
     management: "https://management.cn-sz-01.qhsgaiccapi.com",
     network: "https://network.cn-sz-01.qhsgaiccapi.com",
-    ccr: "https://ccr.cn-sz-01.qhsgaiccapi.com",
   }),
 });
-
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function controlRoot(product) {
   return `/compute/${product}/data/v2/subscriptions/${PROFILE.subscription}`
@@ -39,36 +39,8 @@ export const PATHS = Object.freeze({
   dnatRule: (name) => `/network/eip/data/v1/subscriptions/${PROFILE.subscription}`
     + `/resourceGroups/${PROFILE.resourceGroup}/zones/${PROFILE.eipZone}`
     + `/eips/${PROFILE.eipName}/dnatRules/${name}`,
-  repositories: `/devtools/ccr/data/v1/subscriptions/${PROFILE.subscription}`
-    + `/resourceGroups/${PROFILE.resourceGroup}/zones/${PROFILE.controlZone}`
-    + `/namespaces/${PROFILE.namespace}/repositories`,
   resources: "/rmh/v1/resources",
 });
-
-export function buildAuthorization({
-  accessKeyId,
-  secretAccessKey,
-  method,
-  path: requestPath,
-  date = new Date().toUTCString(),
-}) {
-  const upperMethod = method.toUpperCase();
-  const stringToSign = `x-date: ${date}\n${upperMethod} ${requestPath} HTTP/1.1`;
-  const signature = crypto
-    .createHmac("sha256", secretAccessKey)
-    .update(stringToSign)
-    .digest("base64");
-  const authorization = `hmac accesskey="${accessKeyId}", algorithm="hmac-sha256", `
-    + `headers="x-date request-line", signature="${signature}"`;
-  return { authorization, date, signature, stringToSign };
-}
-
-export function requireMutationConfirmation(method, args) {
-  const upperMethod = method.toUpperCase();
-  if (MUTATING_METHODS.has(upperMethod) && !args.includes("--yes")) {
-    throw new Error(`Refusing ${upperMethod} without --yes`);
-  }
-}
 
 export function sanitizeServicePorts(ports = []) {
   return ports.map(({ port, target_port }) => ({ port, target_port }));
@@ -106,62 +78,11 @@ export function validateDnatCreateBody(body) {
   return body;
 }
 
-function credentialsFromEnv(env = process.env) {
-  const accessKeyId = env.SENSECORE_ACCESS_KEY_ID;
-  const secretAccessKey = env.SENSECORE_ACCESS_KEY_SECRET;
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error(
-      "Set SENSECORE_ACCESS_KEY_ID and SENSECORE_ACCESS_KEY_SECRET in the current process",
-    );
-  }
-  return { accessKeyId, secretAccessKey };
-}
-
-async function parseResponse(response) {
-  const text = await response.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
-  }
-  if (!response.ok) {
-    const detail = typeof data === "string" ? data : JSON.stringify(data);
-    throw new Error(`SenseCore HTTP ${response.status}: ${detail}`);
-  }
-  return data;
-}
-
-export async function signedRequest({
-  service,
-  method,
-  path: requestPath,
-  body,
-  args = [],
-  env = process.env,
-  fetchImpl = fetch,
-}) {
-  const upperMethod = method.toUpperCase();
-  requireMutationConfirmation(upperMethod, args);
+export async function signedRequest({ service, ...request }) {
   const host = PROFILE.hosts[service];
   if (!host) throw new Error(`Unknown service: ${service}`);
-  if (!requestPath.startsWith("/")) throw new Error("Request path must start with /");
-
-  const credentials = credentialsFromEnv(env);
-  const signed = buildAuthorization({ ...credentials, method: upperMethod, path: requestPath });
-  const headers = {
-    Authorization: signed.authorization,
-    "X-Date": signed.date,
-  };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (service === "cci") headers["x-ui-valid"] = "x-ui-valid";
-
-  const response = await fetchImpl(`${host}${requestPath}`, {
-    method: upperMethod,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return parseResponse(response);
+  const headers = service === "cci" ? { "x-ui-valid": "x-ui-valid" } : {};
+  return signedFetch({ ...request, host, headers });
 }
 
 function queryString(entries) {
@@ -182,7 +103,6 @@ function usage() {
   sensecore-cci.mjs cci list|get|start|stop|delete|create|update ...
   sensecore-cci.mjs service get|create|delete ...
   sensecore-cci.mjs storage list
-  sensecore-cci.mjs image list [repository]
   sensecore-cci.mjs dnat list|create|delete ...
   sensecore-cci.mjs request <service> <method> <path> [body.json] [--yes]
 
@@ -315,20 +235,6 @@ async function runStorage(action) {
   });
 }
 
-async function runImage(action, args) {
-  if (action !== "list") throw new Error(`Unknown image action: ${action}`);
-  const data = await signedRequest({
-    service: "ccr", method: "GET", path: PATHS.repositories,
-  });
-  if (!args[0]) return data;
-  return {
-    ...data,
-    // Repos are named <user>-<project>, so `image list <user>` matches by prefix
-    repositories: (data.repositories || []).filter((item) => item.name
-      .replace(`${PROFILE.namespace}/`, "").startsWith(args[0])),
-  };
-}
-
 async function runDnat(action, args) {
   if (action === "list") {
     const query = queryString({
@@ -369,7 +275,6 @@ export async function main(argv = process.argv.slice(2)) {
   if (group === "cci") result = await runCci(action, args);
   else if (group === "service") result = await runService(action, args);
   else if (group === "storage") result = await runStorage(action, args);
-  else if (group === "image") result = await runImage(action, args);
   else if (group === "dnat") result = await runDnat(action, args);
   else if (group === "request") {
     const [service, method, requestPath, bodyFile] = [action, ...args];
